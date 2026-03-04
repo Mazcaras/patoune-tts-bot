@@ -6,6 +6,13 @@ import { buildHelpEmbed } from "./help.js";
 import { join, leave, getConnection, playMp3Buffer } from "./voice.js";
 import { loadVoicePresets, synthesizeMp3 } from "./tts.js";
 
+import fs from "node:fs";
+
+if (process.env.GOOGLE_CREDENTIALS) {
+  fs.writeFileSync("/tmp/gcp.json", process.env.GOOGLE_CREDENTIALS);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/gcp.json";
+}
+
 if (!process.env.DISCORD_TOKEN) {
   console.error("DISCORD_TOKEN manquant.");
   process.exit(1);
