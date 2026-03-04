@@ -6,7 +6,7 @@ import {
   createAudioResource,
   entersState,
   getVoiceConnection,
-  joinVoiceChannel
+  joinVoiceChannel,
 } from "@discordjs/voice";
 import { Readable } from "node:stream";
 
@@ -30,28 +30,44 @@ export async function join(member) {
     channelId: channel.id,
     guildId: channel.guild.id,
     adapterCreator: channel.guild.voiceAdapterCreator,
-    selfDeaf: false
+    selfDeaf: false,
+  });
+
+  // ✅ Logs d'état de la connexion vocale
+  connection.on("stateChange", (oldState, newState) => {
+    console.log(`[voice] ${channel.guild.id} ${oldState.status} -> ${newState.status}`);
   });
 
   connection.subscribe(player);
 
-  // Robustesse: si Discord coupe, on tente de récupérer.
+  // ✅ Robustesse: si Discord coupe, on tente de récupérer (sinon on détruit)
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
+    console.warn("[voice] Disconnected, trying to reconnect...");
     try {
       await Promise.race([
         entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-        entersState(connection, VoiceConnectionStatus.Connecting, 5_000)
+        entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
       ]);
-      // récupéré
+      console.log("[voice] Recovered from disconnect.");
     } catch {
+      console.warn("[voice] Reconnect failed, destroying connection.");
       try {
         connection.destroy();
       } catch {}
     }
   });
 
-  // Attend que la connexion soit prête
-  await entersState(connection, VoiceConnectionStatus.Ready, 45_000);
+  // ✅ Attend que la connexion soit prête (timeout augmenté)
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 45_000);
+  } catch (e) {
+    console.error("[voice] Ready timeout. Destroying connection.", e?.message || e);
+    try {
+      connection.destroy();
+    } catch {}
+    throw new Error("Connexion vocale impossible (timeout). Vérifie permissions + région Discord.");
+  }
+
   return connection;
 }
 
@@ -65,7 +81,10 @@ export async function playMp3Buffer(guildId, buffer) {
 
   const next = chain.then(async () => {
     const stream = Readable.from(buffer);
-    const resource = createAudioResource(stream, { inputType: StreamType.OggOpus });;
+
+    // ⚠️ Ici on suppose que ton TTS renvoie du OGG_OPUS
+    // (donc synthesizeSpeech audioEncoding: "OGG_OPUS")
+    const resource = createAudioResource(stream, { inputType: StreamType.OggOpus });
 
     player.play(resource);
 
