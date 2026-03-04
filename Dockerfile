@@ -14,4 +14,4 @@ RUN npm install --omit=dev
 # Copier le code
 COPY . .
 
-CMD ["node", "src/index.js"]
+CMD ["npm", "start"]
