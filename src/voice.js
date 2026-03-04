@@ -26,12 +26,13 @@ export async function join(member) {
   const existing = getVoiceConnection(channel.guild.id);
   if (existing) return existing;
 
-  const connection = joinVoiceChannel({
-    channelId: channel.id,
-    guildId: channel.guild.id,
-    adapterCreator: channel.guild.voiceAdapterCreator,
-    selfDeaf: false,
-  });
+const connection = joinVoiceChannel({
+  channelId: channel.id,
+  guildId: channel.guild.id,
+  adapterCreator: channel.guild.voiceAdapterCreator,
+  selfDeaf: true,
+  selfMute: false,
+});
 
   // ✅ Logs d'état de la connexion vocale
   connection.on("stateChange", (oldState, newState) => {
