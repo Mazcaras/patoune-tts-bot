@@ -34,14 +34,14 @@ const connection = joinVoiceChannel({
   selfMute: false,
 });
 
-  // ✅ Logs d'état de la connexion vocale
+  // Logs d'état de la connexion vocale
   connection.on("stateChange", (oldState, newState) => {
     console.log(`[voice] ${channel.guild.id} ${oldState.status} -> ${newState.status}`);
   });
 
   connection.subscribe(player);
 
-  // ✅ Robustesse: si Discord coupe, on tente de récupérer (sinon on détruit)
+  // Robustesse: si Discord coupe, on tente de récupérer (sinon on détruit)
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
     console.warn("[voice] Disconnected, trying to reconnect...");
     try {
@@ -58,7 +58,7 @@ const connection = joinVoiceChannel({
     }
   });
 
-  // ✅ Attend que la connexion soit prête (timeout augmenté)
+  // Attend que la connexion soit prête (timeout augmenté)
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 45_000);
   } catch (e) {
@@ -83,8 +83,7 @@ export async function playMp3Buffer(guildId, buffer) {
   const next = chain.then(async () => {
     const stream = Readable.from(buffer);
 
-    // ⚠️ Ici on suppose que ton TTS renvoie du OGG_OPUS
-    // (donc synthesizeSpeech audioEncoding: "OGG_OPUS")
+    // OGG_OPUS
     const resource = createAudioResource(stream, { inputType: StreamType.OggOpus });
 
     player.play(resource);
