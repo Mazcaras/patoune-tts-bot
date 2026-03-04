@@ -8,6 +8,11 @@ import { loadVoicePresets, synthesizeMp3 } from "./tts.js";
 
 import fs from "node:fs";
 
+console.log("[boot] index.js started");
+
+process.on("unhandledRejection", (e) => console.error("[unhandledRejection]", e));
+process.on("uncaughtException", (e) => console.error("[uncaughtException]", e));
+
 if (process.env.GOOGLE_CREDENTIALS) {
   fs.writeFileSync("/tmp/gcp.json", process.env.GOOGLE_CREDENTIALS);
   process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/gcp.json";
