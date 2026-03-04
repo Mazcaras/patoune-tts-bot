@@ -9,6 +9,13 @@ import {
   joinVoiceChannel,
 } from "@discordjs/voice";
 
+import fs from "node:fs";
+
+if (process.env.GOOGLE_CREDENTIALS) {
+  fs.writeFileSync("/tmp/gcp.json", process.env.GOOGLE_CREDENTIALS);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/gcp.json";
+}
+
 import prism from "prism-media";
 import { Readable } from "node:stream";
 
