@@ -11,9 +11,9 @@ import {
 
 import fs from "node:fs";
 
-if (process.env.GOOGLE_CREDENTIALS) {
-  fs.writeFileSync("/tmp/gcp.json", process.env.GOOGLE_CREDENTIALS);
-  process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/gcp.json";
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+  fs.writeFileSync("/tmp/gcp.json", process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON = "/tmp/gcp.json";
 }
 
 import prism from "prism-media";
