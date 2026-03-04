@@ -8,12 +8,19 @@ import {
   getVoiceConnection,
   joinVoiceChannel,
 } from "@discordjs/voice";
-import { Readable } from "node:stream";
 
-const player = createAudioPlayer();
+import prism from "prism-media";
+import { Readable } from "node:stream";
 
 // File d’attente simple par guild (pour éviter de parler en même temps)
 const queues = new Map(); // guildId -> Promise chain
+
+// 1 player par guild
+const players = new Map();
+function getPlayer(guildId) {
+  if (!players.has(guildId)) players.set(guildId, createAudioPlayer());
+  return players.get(guildId);
+}
 
 export function getConnection(guildId) {
   return getVoiceConnection(guildId) || null;
@@ -26,48 +33,50 @@ export async function join(member) {
   const existing = getVoiceConnection(channel.guild.id);
   if (existing) return existing;
 
-const connection = joinVoiceChannel({
-  channelId: channel.id,
-  guildId: channel.guild.id,
-  adapterCreator: channel.guild.voiceAdapterCreator,
-  selfDeaf: true,
-  selfMute: false,
-});
-
-  // Logs d'état de la connexion vocale
-  connection.on("stateChange", (oldState, newState) => {
-    console.log(`[voice] ${channel.guild.id} ${oldState.status} -> ${newState.status}`);
+  const connection = joinVoiceChannel({
+    channelId: channel.id,
+    guildId: channel.guild.id,
+    adapterCreator: channel.guild.voiceAdapterCreator,
+    selfDeaf: false, // recommandé
+    selfMute: false,
   });
 
-  connection.subscribe(player);
+  // Logs d'état + gestion reconnect quand Disconnected
+  connection.on("stateChange", async (oldState, newState) => {
+    console.log(`[voice] ${channel.guild.id} ${oldState.status} -> ${newState.status}`);
 
-  // Robustesse: si Discord coupe, on tente de récupérer (sinon on détruit)
-  connection.on(VoiceConnectionStatus.Disconnected, async () => {
-    console.warn("[voice] Disconnected, trying to reconnect...");
-    try {
-      await Promise.race([
-        entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-        entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-      ]);
-      console.log("[voice] Recovered from disconnect.");
-    } catch {
-      console.warn("[voice] Reconnect failed, destroying connection.");
+    if (newState.status === VoiceConnectionStatus.Disconnected) {
+      console.warn("[voice] Disconnected, trying to reconnect...");
       try {
-        connection.destroy();
-      } catch {}
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+        ]);
+        console.log("[voice] Recovered from disconnect.");
+      } catch {
+        console.warn("[voice] Reconnect failed, destroying connection.");
+        try { connection.destroy(); } catch {}
+      }
     }
   });
 
-  // Attend que la connexion soit prête (timeout augmenté)
+  // (optionnel mais utile) erreurs de connexion
+  connection.on("error", (err) => {
+    console.error("[voice] connection error:", err);
+  });
+
+  // Attend que la connexion soit prête
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 45_000);
   } catch (e) {
     console.error("[voice] Ready timeout. Destroying connection.", e?.message || e);
-    try {
-      connection.destroy();
-    } catch {}
+    try { connection.destroy(); } catch {}
     throw new Error("Connexion vocale impossible (timeout). Vérifie permissions + région Discord.");
   }
+
+  // Subscribe seulement une fois Ready
+  const player = getPlayer(channel.guild.id);
+  connection.subscribe(player);
 
   return connection;
 }
@@ -81,10 +90,24 @@ export async function playMp3Buffer(guildId, buffer) {
   const chain = queues.get(guildId) || Promise.resolve();
 
   const next = chain.then(async () => {
-    const stream = Readable.from(buffer);
+    const player = getPlayer(guildId);
 
-    // OGG_OPUS
-    const resource = createAudioResource(stream, { inputType: StreamType.OggOpus });
+    // FFmpeg transcode -> PCM raw 48kHz stereo
+    const transcoder = new prism.FFmpeg({
+      args: [
+        "-analyzeduration", "0",
+        "-loglevel", "0",
+        "-i", "pipe:0",
+        "-f", "s16le",
+        "-ar", "48000",
+        "-ac", "2",
+      ],
+    });
+
+    const input = Readable.from(buffer);
+    const output = input.pipe(transcoder);
+
+    const resource = createAudioResource(output, { inputType: StreamType.Raw });
 
     player.play(resource);
 
