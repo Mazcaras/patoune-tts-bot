@@ -1,6 +1,7 @@
 import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
+  StreamType,
   createAudioPlayer,
   createAudioResource,
   entersState,
@@ -50,7 +51,7 @@ export async function join(member) {
   });
 
   // Attend que la connexion soit prête
-  await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+  await entersState(connection, VoiceConnectionStatus.Ready, 45_000);
   return connection;
 }
 
@@ -64,7 +65,7 @@ export async function playMp3Buffer(guildId, buffer) {
 
   const next = chain.then(async () => {
     const stream = Readable.from(buffer);
-    const resource = createAudioResource(stream);
+    const resource = createAudioResource(stream, { inputType: StreamType.OggOpus });;
 
     player.play(resource);
 

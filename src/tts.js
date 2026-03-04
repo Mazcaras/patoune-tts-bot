@@ -76,7 +76,7 @@ export async function synthesizeMp3(text, voiceName = "", speakingRate = 1.0) {
       ? { name: voiceName, languageCode }
       : { languageCode: "fr-FR", ssmlGender: "NEUTRAL" },
     audioConfig: {
-      audioEncoding: "MP3",
+      audioEncoding: "OGG_OPUS",
       speakingRate,
     },
   };
