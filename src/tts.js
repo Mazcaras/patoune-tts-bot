@@ -17,20 +17,24 @@ function ensureGcpCredsFromEnv() {
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
 /**
- * Récupère des voix FR si possible (3 F / 3 M).
- * On choisit dynamiquement pour éviter de hardcoder des noms qui changent.
+ * Récupère des voix *fr-FR* (3 F / 3 M).
+ * On filtre strictement sur fr-FR pour éviter l’accent québécois (fr-CA).
  */
 export async function loadVoicePresets() {
   ensureGcpCredsFromEnv();
 
   const [res] = await ttsClient.listVoices({});
   const voices = (res.voices || [])
-    .filter((v) => (v.languageCodes || []).some((l) => l.startsWith("fr-")))
+    // ✅ Filtre STRICT fr-FR uniquement
+    .filter((v) => (v.languageCodes || []).includes("fr-FR"))
     .map((v) => ({
       name: v.name,
       gender: v.ssmlGender, // "FEMALE" | "MALE" | "NEUTRAL" | "SSML_VOICE_GENDER_UNSPECIFIED"
       languages: v.languageCodes || [],
     }));
+
+  // (optionnel) si tu veux favoriser certaines familles, tu peux trier ici
+  // ex: prioriser Neural2 / Wavenet, etc. (sans changer le reste)
 
   const females = voices.filter((v) => v.gender === "FEMALE");
   const males = voices.filter((v) => v.gender === "MALE");
@@ -55,26 +59,20 @@ export async function loadVoicePresets() {
 }
 
 /**
- * TTS -> MP3 buffer
- * Fix: toujours fournir un languageCode valide même si on passe un voice "name"
- * (sinon Google renvoie parfois: INVALID_ARGUMENT: Empty language code.)
+ * TTS -> OGG_OPUS buffer
+ * ✅ On force fr-FR pour éviter toute dérive vers fr-CA.
  */
 export async function synthesizeMp3(text, voiceName = "", speakingRate = 1.0) {
   ensureGcpCredsFromEnv();
 
-  // Déduire la langue depuis le nom si possible (ex: "fr-CA-Chirp-HD-F" -> "fr-CA")
-  let languageCode = "fr-FR";
-  if (voiceName) {
-    const m = /^([a-z]{2}-[A-Z]{2})-/.exec(voiceName);
-    if (m?.[1]) languageCode = m[1];
-    else languageCode = "fr-CA"; // fallback cohérent avec tes presets
-  }
+  // ✅ Toujours fr-FR
+  const languageCode = "fr-FR";
 
   const request = {
     input: { text },
     voice: voiceName
-      ? { name: voiceName, languageCode }
-      : { languageCode: "fr-FR", ssmlGender: "NEUTRAL" },
+      ? { name: voiceName, languageCode } // voiceName doit être une voix fr-FR
+      : { languageCode, ssmlGender: "NEUTRAL" },
     audioConfig: {
       audioEncoding: "OGG_OPUS",
       speakingRate,

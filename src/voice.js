@@ -1,3 +1,4 @@
+import { PermissionsBitField, ChannelType } from "discord.js";
 import {
   AudioPlayerStatus,
   VoiceConnectionStatus,
@@ -33,15 +34,48 @@ export async function join(member) {
   const existing = getVoiceConnection(channel.guild.id);
   if (existing) return existing;
 
+  // --- DEBUG / CHECKS permissions + type de salon ---
+  const me = channel.guild.members.me ?? (await channel.guild.members.fetch(member.client.user.id));
+
+  console.log("[voice] channel info", {
+    id: channel.id,
+    name: channel.name,
+    type: channel.type,
+    userLimit: channel.userLimit,
+    full: typeof channel.full === "boolean" ? channel.full : undefined,
+    bitrate: channel.bitrate,
+    rtcRegion: channel.rtcRegion ?? null,
+  });
+
+  if (channel.type === ChannelType.GuildStageVoice) {
+    throw new Error("Ce salon est un STAGE. Teste un salon vocal classique (GuildVoice).");
+  }
+  if (channel.type !== ChannelType.GuildVoice) {
+    throw new Error(`Salon non supporté (type=${channel.type}). Teste un vocal classique.`);
+  }
+
+  const perms = channel.permissionsFor(me);
+  const missing = [];
+  if (!perms?.has(PermissionsBitField.Flags.ViewChannel)) missing.push("ViewChannel");
+  if (!perms?.has(PermissionsBitField.Flags.Connect)) missing.push("Connect");
+  if (!perms?.has(PermissionsBitField.Flags.Speak)) missing.push("Speak");
+
+  if (missing.length) {
+    throw new Error(`Permissions manquantes pour le bot dans ce salon: ${missing.join(", ")}`);
+  }
+
+  if (channel.full) {
+    throw new Error("Le salon vocal est plein (user limit atteint).");
+  }
+
   const connection = joinVoiceChannel({
     channelId: channel.id,
     guildId: channel.guild.id,
     adapterCreator: channel.guild.voiceAdapterCreator,
-    selfDeaf: false, // recommandé
+    selfDeaf: false,
     selfMute: false,
   });
 
-  // Logs d'état + gestion reconnect quand Disconnected
   connection.on("stateChange", async (oldState, newState) => {
     console.log(`[voice] ${channel.guild.id} ${oldState.status} -> ${newState.status}`);
 
@@ -60,21 +94,19 @@ export async function join(member) {
     }
   });
 
-  // (optionnel mais utile) erreurs de connexion
   connection.on("error", (err) => {
     console.error("[voice] connection error:", err);
   });
 
-  // Attend que la connexion soit prête
   try {
+    await entersState(connection, VoiceConnectionStatus.Connecting, 10_000);
     await entersState(connection, VoiceConnectionStatus.Ready, 45_000);
   } catch (e) {
-    console.error("[voice] Ready timeout. Destroying connection.", e?.message || e);
+    console.error("[voice] Ready/Connecting timeout. Destroying connection.", e?.message || e);
     try { connection.destroy(); } catch {}
     throw new Error("Connexion vocale impossible (timeout). Vérifie permissions + région Discord.");
   }
 
-  // Subscribe seulement une fois Ready
   const player = getPlayer(channel.guild.id);
   connection.subscribe(player);
 
@@ -92,7 +124,6 @@ export async function playMp3Buffer(guildId, buffer) {
   const next = chain.then(async () => {
     const player = getPlayer(guildId);
 
-    // FFmpeg transcode -> PCM raw 48kHz stereo
     const transcoder = new prism.FFmpeg({
       args: [
         "-analyzeduration", "0",
