@@ -1,14 +1,15 @@
 FROM node:20-slim
 
-# Installer ffmpeg (et certificats)
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+# installer ffmpeg
+RUN apt-get update && apt-get install -y ffmpeg
 
 WORKDIR /app
-COPY package.json package-lock.json* ./
+
+COPY package*.json ./
+
 RUN npm install
 
 COPY . .
-ENV NODE_ENV=production
-CMD ["npm", "start"]
+
+# log pour vérifier que le container démarre
+CMD ["sh", "-c", "echo 'Starting bot...' && node src/index.js"]
