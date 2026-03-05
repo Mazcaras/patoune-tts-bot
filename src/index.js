@@ -11,7 +11,7 @@ import { join, leave, getConnection, playMp3Buffer } from "./voice.js";
 
 console.log("[boot] index.js started");
 
-// ✅ Dependency report @discordjs/voice (opus/ffmpeg/davey/etc.)
+// ✅ Dependency report
 try {
   console.log(generateDependencyReport());
 } catch (e) {
@@ -21,7 +21,7 @@ try {
 process.on("unhandledRejection", (e) => console.error("[unhandledRejection]", e));
 process.on("uncaughtException", (e) => console.error("[uncaughtException]", e));
 
-// --- Google creds bootstrap (AVANT d'importer le TTS) ---
+// --- Google creds bootstrap ---
 if (process.env.GOOGLE_CREDENTIALS && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
   fs.writeFileSync("/tmp/gcp.json", process.env.GOOGLE_CREDENTIALS, "utf8");
   process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/gcp.json";
@@ -32,20 +32,18 @@ if (!process.env.DISCORD_TOKEN) {
   console.error("DISCORD_TOKEN manquant.");
   process.exit(1);
 }
-if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  console.warn("⚠️ Google creds: configure GOOGLE_CREDENTIALS (Railway) ou GOOGLE_APPLICATION_CREDENTIALS (local).");
-}
 
-// --- Keepalive HTTP (Railway-friendly) ---
+// --- Keepalive HTTP ---
 const app = express();
 app.get("/", (_req, res) => res.status(200).send("ok"));
 app.listen(PORT, () => console.log(`[keepalive] listening on :${PORT}`));
 
-// --- Import TTS après bootstrap creds ---
+// --- Import TTS ---
 const { loadVoicePresets, synthesizeMp3 } = await import("./tts.js");
 
-// voix par guild
-const guildVoiceChoice = new Map(); // guildId -> "f1" | "h2" etc
+// 🎤 VOIX PAR UTILISATEUR
+const userVoiceChoice = new Map(); // userId -> voiceKey
+
 let voicePresets = { f1: "", f2: "", f3: "", h1: "", h2: "", h3: "" };
 
 function getStatusChannel(client) {
@@ -59,7 +57,6 @@ function isInSameVoice(member, conn) {
   return Boolean(myChannelId && userChannelId && myChannelId === userChannelId);
 }
 
-// remplace les mentions <@id> par le displayName serveur, pas l’ID
 function replaceMentionsWithNames(message, text) {
   for (const [id, user] of message.mentions.users) {
     const member = message.guild?.members.cache.get(id);
@@ -83,50 +80,14 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-client.on("voiceStateUpdate", (oldS, newS) => {
-  if (newS.member?.id === client.user?.id || oldS.member?.id === client.user?.id) {
-    console.log("[dbg] bot voiceStateUpdate", {
-      oldChan: oldS.channelId,
-      newChan: newS.channelId,
-      oldSession: oldS.sessionId,
-      newSession: newS.sessionId,
-    });
-  }
-});
-
-client.on("raw", (pkt) => {
-  if (pkt?.t === "VOICE_SERVER_UPDATE") {
-    console.log("[dbg] VOICE_SERVER_UPDATE", {
-      guild_id: pkt.d?.guild_id,
-      endpoint: pkt.d?.endpoint,
-      tokenLen: pkt.d?.token ? pkt.d.token.length : 0,
-    });
-  }
-  if (pkt?.t === "VOICE_STATE_UPDATE" && pkt.d?.user_id === client.user?.id) {
-    console.log("[dbg] VOICE_STATE_UPDATE(raw)", {
-      guild_id: pkt.d?.guild_id,
-      channel_id: pkt.d?.channel_id,
-      session_id: pkt.d?.session_id,
-    });
-  }
-});
-
-async function announce(client, content) {
-  const ch = getStatusChannel(client);
-  if (ch && ch.isTextBased()) {
-    try { await ch.send(content); } catch {}
-  }
-}
-
 client.on("ready", async () => {
   console.log(`✅ Connecté: ${client.user.tag}`);
-  await announce(client, `✅ **Connecté** en tant que **${client.user.tag}**`);
 
   try {
     voicePresets = await loadVoicePresets();
     console.log("🎙️ Voice presets:", voicePresets);
   } catch (e) {
-    console.warn("⚠️ Impossible de charger les voix Google (listVoices). On continuera avec voice neutral fr-FR.", e?.message || e);
+    console.warn("⚠️ Impossible de charger les voix Google.", e?.message || e);
   }
 });
 
@@ -145,11 +106,8 @@ client.on("messageCreate", async (message) => {
     }
 
     if (cmd === "join") {
-      console.log("[join] start", { guild: message.guild.id, user: message.author.id });
-
       try {
         const conn = await join(message.member);
-        console.log("[join] done", { status: conn?.state?.status, channelId: conn?.joinConfig?.channelId });
         return message.reply("✅ J’ai rejoint le vocal. Utilise `!v <texte>` pour parler.");
       } catch (e) {
         console.error("[join] failed:", e);
@@ -162,7 +120,7 @@ client.on("messageCreate", async (message) => {
       if (!conn) return message.reply("Je ne suis pas en vocal.");
 
       if (!isInSameVoice(message.member, conn)) {
-        return message.reply("❌ Tu dois être dans **le même vocal que moi** pour me faire quitter.");
+        return message.reply("❌ Tu dois être dans **le même vocal que moi**.");
       }
 
       leave(message.guild.id);
@@ -173,25 +131,29 @@ client.on("messageCreate", async (message) => {
 
     if (cmd === "vuse") {
       if (!conn) return message.reply("❌ Je ne suis pas en vocal. Fais `!join` d’abord.");
-      if (!isInSameVoice(message.member, conn)) return message.reply("❌ Tu dois être dans **le même vocal que moi**.");
+      if (!isInSameVoice(message.member, conn)) return message.reply("❌ Tu dois être dans le même vocal.");
 
       const key = (rest[0] || "").toLowerCase();
+
       if (!["f1","f2","f3","h1","h2","h3"].includes(key)) {
         return message.reply("Usage: `!vuse f1|f2|f3|h1|h2|h3`");
       }
 
-      guildVoiceChoice.set(message.guild.id, key);
-      return message.reply(`✅ Voix sélectionnée: **${key}**`);
+      // 🔊 voix personnelle
+      userVoiceChoice.set(message.author.id, key);
+
+      return message.reply(`🎤 Ta voix personnelle est maintenant **${key}**`);
     }
 
     if (cmd === "v") {
       if (!conn) return message.reply("❌ Je ne suis pas en vocal. Fais `!join` d’abord.");
-      if (!isInSameVoice(message.member, conn)) return message.reply("❌ Tu dois être dans **le même vocal que moi**.");
+      if (!isInSameVoice(message.member, conn)) return message.reply("❌ Tu dois être dans le même vocal.");
       if (!argsText) return message.reply(`Usage: \`${PREFIX}v <texte>\``);
 
       const cleanText = replaceMentionsWithNames(message, argsText);
 
-      const voiceKey = guildVoiceChoice.get(message.guild.id) || DEFAULT_VOICE_KEY;
+      // 🔊 récupérer la voix personnelle
+      const voiceKey = userVoiceChoice.get(message.author.id) || DEFAULT_VOICE_KEY;
       const voiceName = voicePresets?.[voiceKey] || "";
 
       const mp3 = await synthesizeMp3(cleanText, voiceName);
