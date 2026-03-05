@@ -58,15 +58,27 @@ function isInSameVoice(member, conn) {
 }
 
 function replaceMentionsWithNames(message, text) {
+
+  // utilisateurs
   for (const [id, user] of message.mentions.users) {
     const member = message.guild?.members.cache.get(id);
     const name = member?.displayName || user.username;
     text = text.replaceAll(new RegExp(`<@!?${id}>`, "g"), name);
   }
+
+  // rôles
   for (const [id, role] of message.mentions.roles) {
     text = text.replaceAll(new RegExp(`<@&${id}>`, "g"), role.name);
   }
-  text = text.replaceAll(/@everyone/g, "tout le monde").replaceAll(/@here/g, "ici");
+
+  // everyone / here
+  text = text
+    .replaceAll(/@everyone/g, "tout le monde")
+    .replaceAll(/@here/g, "ici");
+
+  // ✅ convertir emojis personnalisés en nom
+  text = text.replace(/<a?:([a-zA-Z0-9_]+):\d+>/g, "$1");
+
   return text;
 }
 
