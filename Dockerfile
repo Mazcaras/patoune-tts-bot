@@ -1,9 +1,16 @@
-FROM node:20-slim
-
-# installer ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg
+FROM node:22
 
 WORKDIR /app
+
+# dépendances système pour discord voice
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    build-essential \
+    python3 \
+    make \
+    g++ \
+    libopus-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 
@@ -11,5 +18,4 @@ RUN npm install
 
 COPY . .
 
-# log pour vérifier que le container démarre
-CMD ["sh", "-c", "echo 'Starting bot...' && node src/index.js"]
+CMD ["node", "src/index.js"]
